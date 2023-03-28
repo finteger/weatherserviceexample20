@@ -51,10 +51,26 @@
     button[type="submit"]:hover {
       background-color: #0D47A1;
     }
+
+    #loggy{
+      position: absolute;
+      top:2%;
+      right:2%;
+    }
+
+    #image{
+    margin: 20px;
+
+    }
   </style>
   
   <h2>Enter weather data for cities</h2>
   
+<form id="loggy" action="/logout" method="POST">
+  <button type="submit">Logout</button>
+</form>
+
+
   <form action="/weather" method="post">
     <label for="city">City:</label>
     <select name="city" id="city">
@@ -73,6 +89,9 @@
   
     <label for="humidity">Humidity:</label>
     <input type="number" id="humidity" name="humidity" required>
+
+    <label for="image">Upload Your Weather Snapshot Image!</label>
+    <input type="file" id="image" name="image" value=""></input>
   
     <button type="submit">Submit</button>
   </form>

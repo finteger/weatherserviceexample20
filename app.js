@@ -4,11 +4,14 @@ const bodyParser = require('body-parser');
 const Weather = require('./weather.js');
 const User = require('./user.js');
 const Session = require('./session.js');
+const Image = require('./image.js');
 const ejs = require('ejs');
 const Joi = require('joi');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
+const session = require('express-session');
+const secretKey = 'secret_key';
 const saltRounds = 10;
 
 //Create an instance of the express application
@@ -30,6 +33,11 @@ app.use(express.static('public'));
 app.use(express.json());
 app.use(bodyParser.urlencoded({extended: false}));
 app.use(cookieParser());
+app.use(session({
+    secret: 'your_secret_key_here',
+    resave: false,
+    saveUninitialized: false,
+}));
 
 
 //Connect to the MongoDb Database
@@ -54,6 +62,29 @@ mongoose.connect(url,connectionParams)
 );
 
 
+//High level middleware function that verifies jwt.  Authorized access if session info matches decoded token info.
+function authenticateToken(req, res, next){
+ const token = req.cookies.jwt;
+
+ if(token) {
+    jwt.verify(token, secretKey, (err, decoded) => {
+        if(err){
+            res.status(401).send('Invalid token');
+        }
+        req.userId = decoded;
+        if(req.userId.userId  === req.session.userId){
+            next();
+        } else {
+        res.status(401).send('You are not authorized to access this page.');
+    }
+});
+ } else {
+    res.status(401).send('You are not authorized to access this page.');
+ }
+ 
+}
+
+
 //Route to display weather data
 app.get('/weather', async (req, res) =>{
     try {
@@ -65,7 +96,7 @@ app.get('/weather', async (req, res) =>{
 });
 
 //Define route for weather tracker form
-app.get('/weathertracker', (req, res) =>{
+app.get('/weathertracker',   (req, res) =>{
 res.render('index.ejs');
 });
 
@@ -86,11 +117,21 @@ try {
 } catch (error) {
     res.status(500).send('An error occurred while saving weather data.');
 }
+
+//Save weather image upload
+const image = new Image({
+
+    img: req.body.image,
+
+});
+
+image.save();
+
 });
 
 
 //Route to display all weather data in HTML by passing data variables
-app.get('/view', async (req, res) =>{
+app.get('/view', authenticateToken, async (req, res) =>{
 
     try {
         const weatherData = await Weather.find();
@@ -131,7 +172,15 @@ const schema = Joi.object({
 
 //Create a new user
 //To-Do:  Create logic to stop users with existing emails to create another account
-app.post('/register', (req, res) =>{
+app.post('/register', async (req, res) =>{
+
+const { email } = req.body;
+
+const user = await User.findOne({ email });
+
+if(user){
+    res.status(400).send({error: 'A user with that email already exists.  Please try again.'});
+}
 
 const {error, value} = schema.validate(req.body);
 
@@ -176,20 +225,48 @@ if(!isMatch){
     res.status(401).send({error:'Invalid Credentials.'})
 }
 
-const token = jwt.sign({ userId: user._id}, 'secret_key');
+const token = jwt.sign({ userId: user._id}, 'secret_key',  {expiresIn: '5m'});
+
+//Set the token as a cookie
+res.cookie('jwt', token, {maxAge: 5 * 60 * 1000, httpOnly: true});
+
+
+req.session.userId = user._id;
+req.session.time = Date.now();
+
 
 const session = new Session({
-    session_id: req.body.sessionId,
+    session_id: req.session.userId,
+    timestamp: req.session.time
 });
 
 session.save();
 
-res.render('index.ejs');    
+
+
+res.redirect('/weathertracker');   
 });
 
 
 
+app.post('/logout', (req, res) =>{
 
+res.clearCookie('jwt');
+
+req.session.userId = null;
+
+req.session.destroy((err) =>{
+
+    if(err){
+        console.error(err);
+        res.status(500).send('Server Error');
+
+    } else {
+        res.redirect('/login');
+    }
+
+});
+});
 
 
 //Define the port number
